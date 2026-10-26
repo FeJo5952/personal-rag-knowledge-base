@@ -70,13 +70,15 @@ python -m eval.run_eval --retrieval-only   # retrieval metrics only (fast, no LL
 python -m eval.run_eval                    # also generates answers and grades them with an LLM judge
 ```
 
-| Metric | Meaning |
-|---|---|
-| **Hit@1** (main) | Share of questions where the top retrieved chunk comes from a correct source note |
-| **Hit@5** | Share of questions where a correct source note is in the top 5 retrieved chunks |
-| **MRR** | Mean reciprocal rank of the first correct source (1st = 1.0, 2nd = 0.5, ...) |
-| **All@5** | Share of questions where every needed note is in the top 5 (matters for multi-note questions) |
-| **Answer score** | LLM-as-judge grade against the expected answer (correct 1, partial 0.5, wrong 0) |
+All metrics range from 0 to 1, and higher is better.
+
+| Metric | Meaning | How to read a score |
+|---|---|---|
+| **Hit@1** (main) | Share of questions where the top retrieved chunk comes from a correct source note | **0.70** = the very first result is from the right note for 7 out of 10 questions. Below 0.5 is weak; 0.8+ is strong. |
+| **Hit@5** | Share of questions where a correct source note is in the top 5 retrieved chunks | **0.40** = for 6 out of 10 questions the right note isn't among the 5 chunks the LLM sees, so it can't answer them. Aim for 0.9+. |
+| **MRR** | Mean reciprocal rank of the first correct source (1st = 1.0, 2nd = 0.5, 3rd = 0.33, ..., not found = 0) | **0.80** = the right note is usually ranked 1st, occasionally 2nd. **0.50** ≈ on average it's 2nd. MRR close to Hit@1 means "when found, it's at the top". |
+| **All@5** | Share of questions where every needed note is in the top 5 (matters for multi-note questions) | **0.75** = for 1 in 4 questions at least one needed note is missing, so the answer will be incomplete. |
+| **Answer score** | LLM-as-judge grade against the expected answer (correct 1, partial 0.5, wrong 0) | **0.68** ≈ about two-thirds of the answers are fully right, or many are partly right. A rough signal, since a small LLM judge is noisy; trust the retrieval metrics more. |
 
 The score summary goes to `eval/results/` and is safe to commit. Per-question details go to `eval/runs/`, which is gitignored.
 
