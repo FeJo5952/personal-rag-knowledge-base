@@ -5,9 +5,11 @@ Run from the project root:
     python -m eval.run_eval --retrieval-only    # just Hit@k and MRR (fast, no LLM)
 
 Metrics:
-    Hit@k  - share of questions where a correct source note is in the top k chunks
-    MRR    - mean reciprocal rank: 1/rank of the first correct source (1st = 1.0, 2nd = 0.5, ...)
-    Answer - LLM-as-judge grade: correct = 1, partial = 0.5, wrong = 0
+    Hit@1   - share of questions where the top chunk comes from a correct source note (main metric)
+    Hit@k   - share of questions where a correct source note is anywhere in the top k chunks
+    MRR     - mean reciprocal rank: 1/rank of the first correct source (1st = 1.0, 2nd = 0.5, ...)
+    All@k   - share of questions where EVERY expected source is in the top k (matters for multi-note)
+    Answer  - LLM-as-judge grade: correct = 1, partial = 0.5, wrong = 0
 """
 
 import argparse
@@ -30,13 +32,17 @@ def normalize(path):
     return path.replace("\\", "/").lower()
 
 
-def reciprocal_rank(hits, expected_sources):
-    """1/rank of the first hit from an expected source, or 0 if none was retrieved."""
+def retrieval_scores(hits, expected_sources):
+    """Hit@1, Hit@k, reciprocal rank and all-sources-found for one question."""
     expected = {normalize(s) for s in expected_sources}
-    for rank, hit in enumerate(hits, start=1):
-        if normalize(hit.source) in expected:
-            return 1 / rank
-    return 0.0
+    retrieved = [normalize(h.source) for h in hits]
+    first_rank = next((rank for rank, s in enumerate(retrieved, start=1) if s in expected), None)
+    return {
+        "hit1": 1.0 if first_rank == 1 else 0.0,
+        "hit": 1.0 if first_rank else 0.0,
+        "rr": 1 / first_rank if first_rank else 0.0,
+        "all": 1.0 if expected <= set(retrieved) else 0.0,
+    }
 
 
 def average(values):
@@ -66,9 +72,7 @@ def main():
         row = {"question": q["question"], "type": q["type"], "retrieved": [h.source for h in hits]}
 
         if not not_in_notes:
-            rr = reciprocal_rank(hits, q["sources"])
-            row["hit"] = 1.0 if rr > 0 else 0.0
-            row["rr"] = rr
+            row.update(retrieval_scores(hits, q["sources"]))
 
         if not args.retrieval_only:
             answer = generate(q["question"], hits)
@@ -76,7 +80,7 @@ def main():
             row["grade"] = grade(q["question"], q.get("answer", ""), answer, not_in_notes)
 
         rows.append(row)
-        print(f"[{i}/{len(questions)}] hit={row.get('hit', '-')} grade={row.get('grade', '-')}  {q['question'][:60]}")
+        print(f"[{i}/{len(questions)}] hit@1={row.get('hit1', '-')} hit={row.get('hit', '-')} grade={row.get('grade', '-')}  {q['question'][:60]}")
 
     # Summary, overall and per question type
     groups = defaultdict(list)
@@ -91,14 +95,12 @@ def main():
         f"- LLM: {config.LLM_MODEL} | Judge: {config.JUDGE_MODEL} | Embeddings: {config.EMBED_MODEL}",
         f"- Questions: {len(rows)} | Runtime: {time.time() - started:.0f}s",
         "",
-        f"| Questions | n | Hit@{args.k} | MRR | Answer score |",
-        "|---|---|---|---|---|",
+        f"| Questions | n | Hit@1 | Hit@{args.k} | MRR | All@{args.k} | Answer score |",
+        "|---|---|---|---|---|---|---|",
     ]
     for name, group in groups.items():
-        hit = average([r["hit"] for r in group if "hit" in r])
-        mrr = average([r["rr"] for r in group if "rr" in r])
-        score = average([r["grade"] for r in group if "grade" in r])
-        lines.append(f"| {name} | {len(group)} | {fmt(hit)} | {fmt(mrr)} | {fmt(score)} |")
+        metrics = [average([r[m] for r in group if m in r]) for m in ("hit1", "hit", "rr", "all", "grade")]
+        lines.append(f"| {name} | {len(group)} | " + " | ".join(fmt(v) for v in metrics) + " |")
     summary = "\n".join(lines)
     print("\n" + summary)
 

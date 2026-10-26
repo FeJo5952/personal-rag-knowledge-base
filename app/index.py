@@ -21,14 +21,21 @@ def embed(texts):
     return ollama.embed(model=config.EMBED_MODEL, input=texts)["embeddings"]
 
 
+def uses_gemma_prefixes():
+    # EmbeddingGemma was trained with task prefixes; other embedding models don't need them
+    return "embeddinggemma" in config.EMBED_MODEL
+
+
 def embed_documents(chunks):
-    # EmbeddingGemma expects this prefix for documents being stored
-    return embed([f"title: none | text: {c}" for c in chunks])
+    if uses_gemma_prefixes():
+        chunks = [f"title: none | text: {c}" for c in chunks]
+    return embed(chunks)
 
 
 def embed_query(question):
-    # ...and this prefix for search queries
-    return embed([f"task: search result | query: {question}"])[0]
+    if uses_gemma_prefixes():
+        question = f"task: search result | query: {question}"
+    return embed([question])[0]
 
 
 def get_collection():

@@ -12,10 +12,14 @@ Question: {question}
 Expected answer: {expected}
 Assistant's answer: {answer}
 
-Grade the assistant's answer:
-- "correct": contains the key facts of the expected answer and nothing that contradicts it
-- "partial": some key facts are right, but something important is missing or wrong
+Grade the assistant's answer strictly:
+- "correct": contains ALL key facts of the expected answer and nothing that contradicts it
+- "partial": some key facts are right, but at least one is missing or wrong
 - "wrong": the key facts are missing or wrong
+Rules:
+- If the assistant says it couldn't find the answer, the grade is "wrong".
+- Any number, name or formula that differs from the expected answer means at most "partial".
+- Judge only against the expected answer, not your own knowledge.
 
 Reply with JSON only: {{"grade": "correct" | "partial" | "wrong"}}"""
 

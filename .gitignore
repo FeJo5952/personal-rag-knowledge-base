@@ -6,3 +6,4 @@ chroma_db/
 # eval questions and per-question results contain personal notes
 eval/questions.jsonl
 eval/runs/
+runs

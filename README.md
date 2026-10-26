@@ -30,7 +30,19 @@ Copy `.env.example` to `.env` and set the path to your Obsidian vault:
 VAULT_PATH=C:\path\to\your\vault
 ```
 
-Other settings (models, chunk size, top-k) are optional and listed in `.env.example`.
+### Choosing models
+
+You can use **any Ollama model** that runs on your machine. Set them in `.env`:
+
+| Setting | Job | Default |
+|---|---|---|
+| `EMBED_MODEL` | Turns notes and questions into vectors | `embeddinggemma` |
+| `LLM_MODEL` | Writes the answers | `llama3.1:8b` |
+| `JUDGE_MODEL` | Grades answers in the evaluation (best if different from `LLM_MODEL`) | `qwen2.5:7b` |
+
+Pull whatever you choose with `ollama pull <model>`. With a small GPU (4 GB), a 3B model such as `llama3.2:3b` or `qwen2.5:3b` is much faster than an 8B one. If you change `EMBED_MODEL`, delete the `chroma_db` folder so the notes are re-embedded with the new model.
+
+Other settings (chunk size, top-k) are optional and listed in `.env.example`.
 
 ## Run
 
@@ -54,14 +66,16 @@ The `eval/` folder measures how well the system works on a set of questions with
 2. Run:
 
 ```bash
-python -m eval.run_eval --retrieval-only   # Hit@5 and MRR only (fast)
+python -m eval.run_eval --retrieval-only   # retrieval metrics only (fast, no LLM)
 python -m eval.run_eval                    # also generates answers and grades them with an LLM judge
 ```
 
 | Metric | Meaning |
 |---|---|
+| **Hit@1** (main) | Share of questions where the top retrieved chunk comes from a correct source note |
 | **Hit@5** | Share of questions where a correct source note is in the top 5 retrieved chunks |
 | **MRR** | Mean reciprocal rank of the first correct source (1st = 1.0, 2nd = 0.5, ...) |
+| **All@5** | Share of questions where every needed note is in the top 5 (matters for multi-note questions) |
 | **Answer score** | LLM-as-judge grade against the expected answer (correct 1, partial 0.5, wrong 0) |
 
 The score summary goes to `eval/results/` and is safe to commit. Per-question details go to `eval/runs/`, which is gitignored.
