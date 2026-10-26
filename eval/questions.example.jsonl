@@ -1,0 +1,4 @@
+{"question": "Why did I switch from running to cycling?", "answer": "A knee injury (runner's knee); the physio suggested low-impact cardio.", "sources": ["Health/Fitness.md"], "type": "paraphrase"}
+{"question": "What is SOP_Recommender?", "answer": "A tool that recommends SOP formulations.", "sources": ["Work/SOP_Recommender.md"], "type": "exact-term"}
+{"question": "Which books did I read that I also took project ideas from?", "answer": "Atomic Habits and Deep Work.", "sources": ["Learning/Books.md", "Projects/Ideas.md"], "type": "multi-note"}
+{"question": "What is my passport number?", "answer": "", "sources": [], "type": "not-in-notes"}

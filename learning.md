@@ -392,3 +392,89 @@ Our first version is deliberately simple. Known weaknesses and how we'll fix the
 | **Sparse / keyword retrieval (BM25)** | Search using word matches (exact-term-based) |
 | **Hybrid retrieval** | Combining dense and sparse search |
 | **Source attribution** | Showing which documents an answer came from |
+| **Hit@k** | Share of questions where a correct source note appears in the top *k* retrieved chunks |
+| **MRR** | Mean Reciprocal Rank: average of 1/rank of the first correct result |
+| **LLM-as-judge** | Using an LLM to grade another LLM's answer against an expected answer |
+
+---
+
+## 15. Evaluating a RAG system
+
+"It seems to work" isn't a measurement. To know whether a change (like hybrid search) actually helps, we need **numbers**, measured the same way **before and after** the change.
+
+### The test set (a "golden dataset")
+
+A list of questions where **we already know the right answer and which note contains it**:
+
+```json
+{"question": "Why did I switch to cycling?", "answer": "Knee injury", "sources": ["Health/Fitness.md"], "type": "paraphrase"}
+```
+
+The `type` lets us see *where* the system is weak:
+
+| Type | What it tests |
+|---|---|
+| `paraphrase` | Question uses different words than the note. Tests **meaning**-based search. |
+| `exact-term` | Question hinges on a specific name, acronym or code. Tests **keyword** matching. Semantic search often struggles here. |
+| `multi-note` | The answer is spread across several notes. |
+| `not-in-notes` | The answer isn't in the vault. The system should say so instead of making something up. |
+
+Ours lives in `eval/questions.jsonl`. It's **not committed to git** because it's about personal notes.
+
+### Two separate things to measure
+
+A RAG answer can go wrong in two places, so we measure them separately:
+
+```text
+question → [RETRIEVAL] → chunks → [GENERATION] → answer
+              ▲                        ▲
+         Hit@k, MRR              Answer score (LLM judge)
+```
+
+If retrieval doesn't find the right note, even a perfect LLM can't answer. If retrieval finds it but the answer is still wrong, the problem is the prompt or the model.
+
+### Retrieval metrics
+
+**Hit@k:** did the correct note appear anywhere in the top *k* (we use k = 5)?
+
+```text
+Q1: correct note at rank 1  → hit
+Q2: correct note at rank 4  → hit
+Q3: correct note not in top 5 → miss
+Hit@5 = 2/3 = 0.67
+```
+
+**MRR (Mean Reciprocal Rank):** *how high* was the first correct result? Each question scores 1/rank:
+
+```text
+Q1: rank 1 → 1/1 = 1.00
+Q2: rank 4 → 1/4 = 0.25
+Q3: missing → 0
+MRR = (1.00 + 0.25 + 0) / 3 = 0.42
+```
+
+Hit@k says "did we find it?", while MRR also rewards putting it **at the top**. Both are cheap to compute and objective (no LLM needed), which is why they are our headline numbers.
+
+### Answer metric: LLM-as-judge
+
+Checking whether an answer is correct is hard to automate with code: "runner's knee" and "a knee injury from running" mean the same thing. So we ask an LLM to **grade** it:
+
+- it gets the question, the **expected** answer and the **generated** answer
+- it replies `correct` (1), `partial` (0.5) or `wrong` (0)
+- for `not-in-notes` questions, it checks whether the system admitted it couldn't find the answer
+
+We set `temperature: 0` (no randomness) and force JSON output so grades are consistent and machine-readable.
+
+**Caveat:** a small local judge (8B) is noisy and sometimes too generous or too strict. Treat the answer score as a rough signal, and the retrieval metrics as the reliable ones. Spot-check a few grades by hand in `eval/runs/`.
+
+### Baseline first
+
+We measure the current system **before** improving it. That number is the *baseline*. Every later change (hybrid search, reranking, the agent) is run on the **same questions** so the comparison is fair:
+
+| Version | Hit@5 | MRR | Answer |
+|---|---|---|---|
+| Dense (baseline) | ? | ? | ? |
+| + Hybrid | ? | ? | ? |
+| + Reranker | ? | ? | ? |
+
+Filling in this table is the goal of the next phases.
