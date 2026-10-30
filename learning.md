@@ -478,3 +478,92 @@ We measure the current system **before** improving it. That number is the *basel
 | + Reranker | ? | ? | ? |
 
 Filling in this table is the goal of the next phases.
+
+The filled-in version is in the README under **Results**, and section 16 explains what each improvement does.
+
+---
+
+## 16. Hybrid search: keywords + meaning
+
+### Why semantic search alone isn't enough
+
+Embeddings capture **meaning**, which is great for paraphrases ("grad-school tracker" ≈ "master's applications"). But they're weak on **exact, rare strings**: `E2b`, `UCB1`, `__reduce_ex__`. To an embedding model these are just odd tokens with little meaning, so a chunk that contains the exact term may not rank first.
+
+Old-fashioned **keyword search** is the opposite: it's bad at paraphrases but excellent at "find the chunk containing `E2b`". Combining them gives you the best of both. That's **hybrid search**.
+
+### BM25: keyword search done well
+
+**BM25** is the classic keyword-ranking formula, used by search engines for decades. For each chunk it adds up a score for every question word the chunk contains:
+
+- **Rare words count more.** "E2b" appears in one note, so matching it is a strong signal. "Project" appears everywhere, so matching it means little. (This weighting is called **IDF**, inverse document frequency.)
+- **Repeating a word helps, with diminishing returns.** The 10th "E2b" adds less than the 1st.
+- **Long chunks are penalised a bit,** so a huge chunk doesn't win just by containing more words.
+
+In code it's a few lines (`rank_bm25.BM25Okapi`). The only preparation is **tokenizing**: splitting text into lowercase words.
+
+### Stopwords: a lesson from our eval
+
+Our first BM25 run was poor (Hit@1 0.31). The cause: questions like *"What is the UCB1 constant set to, and how often does it just pick something at random?"* contain lots of common words ("what", "is", "the", "how", "it"). Long notebook exports in the vault contain those words hundreds of times, so they outscored the note containing "UCB1".
+
+The fix is to drop **stopwords** (very common words) before matching. With stopwords removed, BM25 rose to Hit@1 0.50 and hybrid jumped from 0.69 to 0.81. This is a good example of why you **measure**: the problem was invisible until the eval showed it.
+
+### Reciprocal Rank Fusion (RRF): merging two rankings
+
+Now we have two ranked lists, one from embeddings and one from BM25. How do we combine them? Their scores can't be compared directly (cosine similarity 0.4 vs BM25 score 12.7 are different scales). RRF ignores the scores and uses only the **ranks**:
+
+```text
+RRF score of a chunk = sum over lists of  1 / (60 + rank in that list)
+```
+
+Example:
+
+| Chunk | Dense rank | BM25 rank | RRF score |
+|---|---|---|---|
+| A | 1 | 3 | 1/61 + 1/63 = 0.0323 |
+| B | 2 | (not found) | 1/62 = 0.0161 |
+| C | 5 | 1 | 1/65 + 1/61 = 0.0318 |
+
+A chunk ranked well by **both** methods (A, C) beats one ranked well by only one (B). The constant 60 is the standard value from the original paper; it stops the top rank from dominating too much.
+
+In our code (`hybrid_search` in `app/retrieval.py`), each method returns its top 20, and RRF merges them into the final top 5.
+
+### Rerankers (cross-encoders)
+
+The embedding model is a **bi-encoder**: it turns the question and each chunk into vectors *separately*, then compares the vectors. That's fast (chunk vectors are computed once), but the model never sees the question and chunk together.
+
+A **cross-encoder** reads the question **and** the chunk **together** and outputs one relevance score. That's usually more accurate, because it can check whether this chunk actually answers this question, but it's slow: it must run once per (question, chunk) pair at question time. So it's used as a **second stage**:
+
+```text
+all 1,129 chunks ──hybrid search (fast)──► top 20 ──cross-encoder (slow, precise)──► top 5
+```
+
+We run rerankers with **fastembed**, which uses ONNX Runtime instead of PyTorch. It's lighter, and PyTorch was blocked by Windows Smart App Control on this machine.
+
+### What our eval found
+
+| Mode | Hit@1 |
+|---|---|
+| dense | 0.69 |
+| bm25 | 0.50 |
+| **hybrid** | **0.81** |
+| hybrid + best reranker | 0.75 |
+
+**None of the three rerankers we tried beat plain hybrid**, and they added noticeable latency. Likely reasons:
+- They were trained on web search data (short queries, web pages), not personal notes mixed with code.
+- Hybrid already finds the right note in the top 5 every time (Hit@5 = 1.00), so a reranker can only reorder, and sometimes it reorders wrongly.
+
+So `hybrid` is the default and reranking stays optional. **Trying something, measuring it, and keeping it only if it helps** is exactly what evaluation is for. A "negative" result like this is still a result.
+
+### Glossary additions
+
+| Term | Meaning |
+|---|---|
+| **BM25** | Keyword ranking formula: rare shared words count most, long documents are slightly penalised |
+| **IDF** | Inverse document frequency: how rare a word is across all chunks |
+| **Tokenize** | Split text into words (tokens) for keyword search |
+| **Stopwords** | Very common words ("the", "is", "what") ignored by keyword search |
+| **Hybrid search** | Running dense and keyword search together and merging the results |
+| **RRF** | Reciprocal Rank Fusion: merge rankings by summing 1/(60 + rank) |
+| **Bi-encoder** | Embeds question and chunk separately, then compares the vectors (fast) |
+| **Cross-encoder / reranker** | Reads question and chunk together and scores relevance (slow, precise) |
+| **ONNX Runtime** | Lightweight engine for running already-trained models without PyTorch |

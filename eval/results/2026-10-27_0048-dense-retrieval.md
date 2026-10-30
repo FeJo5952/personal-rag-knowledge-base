@@ -1,6 +1,8 @@
 # Eval: mode=dense, k=5
 
 - Date: 2026-10-27 00:48
+- Run type: retrieval only (no answers generated, so no LLM calls and no answer score)
+- Retrieval mode: dense
 - LLM: llama3.1:8b | Judge: qwen2.5:7b | Embeddings: embeddinggemma
 - Questions: 20 | Runtime: 7s
 

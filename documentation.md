@@ -52,13 +52,14 @@ Question → EmbeddingGemma → ChromaDB top-5 chunks → prompt → Llama 3.1 8
 
 ## 5. Code
 
-Everything is in one file, [rag.py](rag.py), with settings as constants at the top:
+`rag.py` is the terminal chat. The logic lives in the `app/` package:
 
-- `chunk_text()` splits text into overlapping fixed-size chunks
-- `embed()` turns text into vectors with EmbeddingGemma
-- `build_index()` reads the vault, then chunks, embeds and stores everything in ChromaDB (first run only)
-- `answer()` retrieves the top 5 chunks, builds the prompt, asks Llama, and prints the answer and sources
-- `main()` loops: asks for a question in the terminal and answers it
+- `config.py`: settings from `.env` (vault path, models, chunking, retrieval mode)
+- `index.py`: `chunk_text()`, `embed_documents()` / `embed_query()`, `build_index()` and `load_index()` (ChromaDB)
+- `retrieval.py`: the `Retriever` class with `dense_search`, `bm25_search`, `hybrid_search` (RRF) and `rerank`; `search()` picks the mode
+- `generate.py`: `build_prompt()` and `generate()` (Llama via Ollama)
+
+`eval/run_eval.py` scores any retrieval mode on the test set, and `eval/judge.py` grades answers with an LLM.
 
 ## 6. Setup: what to download and install
 
@@ -122,11 +123,10 @@ The first run builds the index, then it asks for questions. To re-index after ed
 
 ## 9. Roadmap
 
-- **v1: simple demo** (current): dense retrieval, CLI, source list
-- **v2: hybrid retrieval**: BM25 keyword search + vector search, merged with Reciprocal Rank Fusion
-- **v3: better answers**: heading-aware chunking, inline `[1]` citations, Obsidian links to sources
-- **v4: usability**: Streamlit UI, incremental ingest (only changed notes)
-- **v5: quality**: evaluation set with recall@k and MRR, reranker
+- **Phase 1 (done)**: package refactor, personal evaluation set, baseline metrics (Hit@1, Hit@5, MRR, All@5, LLM-judge answer score)
+- **Phase 2 (done)**: hybrid retrieval (BM25 + embeddings, Reciprocal Rank Fusion), optional cross-encoder reranker
+- **Phase 3**: Streamlit UI
+- **Phase 4**: LangGraph agent (note search, web search, calculator) and per-query latency/token logging
 
 ## 10. Progress log
 
@@ -134,3 +134,5 @@ The first run builds the index, then it asks for questions. To re-index after ed
 | ---------- | ----------------------------------------------------------------- | ---------------------------------------------------------------- |
 | 2026-10-13 | Project planned; learning.md and documentation.md written         | Stack decided: Ollama + Llama 3.1 8B + EmbeddingGemma + ChromaDB |
 | 2026-10-20 | Simplified to a single `rag.py` with an interactive terminal loop | Semantic retrieval only; hybrid search moved to the roadmap      |
+| 2026-10-27 | Phase 1: `app/` package, 20-question personal eval set, baseline | Dense baseline: Hit@1 0.69, answer score 0.68 |
+| 2026-10-30 | Phase 2: BM25, hybrid (RRF), rerankers via fastembed | Hybrid Hit@1 0.81; rerankers didn't help, so hybrid is the default |

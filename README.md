@@ -9,7 +9,19 @@ Everything runs on your machine through Ollama: no cloud, no API keys.
 1. **Chunk**: read every `.md` file in the vault and split it into overlapping ~1000-character chunks.
 2. **Embed**: turn each chunk into a vector with **EmbeddingGemma**.
 3. **Store**: save the vectors, text and source file name in **ChromaDB**.
-4. **Ask**: embed your question, find the 5 most similar chunks, and send them with the question to **Llama 3.1 8B**, which answers using only those notes.
+4. **Retrieve**: find the 5 most relevant chunks with **hybrid search**: semantic search (embeddings) and keyword search (BM25) run side by side, and their rankings are merged with Reciprocal Rank Fusion.
+5. **Answer**: send those chunks with the question to **Llama 3.1 8B**, which answers using only those notes and lists its sources.
+
+### Retrieval modes
+
+Set `RETRIEVAL_MODE` in `.env`:
+
+| Mode | How it finds chunks | Good at |
+|---|---|---|
+| `dense` | Embedding similarity (ChromaDB) | Questions phrased differently from the note |
+| `bm25` | Keyword matching, ignoring common words | Exact names, codes, acronyms |
+| `hybrid` (default) | Both, merged with Reciprocal Rank Fusion | Both kinds of question |
+| `hybrid_rerank` | Hybrid, then a cross-encoder re-scores the top 20 | Optional; didn't help on my notes (see Results) |
 
 ## Setup
 
@@ -82,6 +94,31 @@ All metrics range from 0 to 1, and higher is better.
 
 The score summary goes to `eval/results/` and is safe to commit. Per-question details go to `eval/runs/`, which is gitignored.
 
+### Results
+
+On my vault (119 notes, 1,129 chunks), with 20 personal questions: 16 answerable, 4 whose answer isn't in the notes.
+
+| Retrieval mode | Hit@1 | Hit@5 | MRR | All@5 |
+|---|---|---|---|---|
+| dense (baseline) | 0.69 | 0.94 | 0.79 | 0.88 |
+| bm25 | 0.50 | 0.69 | 0.56 | 0.50 |
+| **hybrid** | **0.81** | **1.00** | **0.91** | **0.94** |
+| hybrid + rerank (ms-marco-MiniLM-L-6) | 0.75 | 0.94 | 0.82 | 0.88 |
+| hybrid + rerank (jina-reranker-v1-turbo) | 0.75 | 1.00 | 0.84 | 0.88 |
+| hybrid + rerank (bge-reranker-base) | 0.69 | 0.94 | 0.77 | 0.81 |
+
+End-to-end answer quality (Llama 3.1 8B answers, Qwen 2.5 7B judges):
+
+| Retrieval mode | Answer score | Paraphrase | Exact-term | Multi-note | Not in notes (correctly refused) |
+|---|---|---|---|---|---|
+| dense (baseline) | 0.68 | 0.50 | 0.67 | 0.62 | 1.00 |
+| **hybrid** | **0.80** | **0.83** | **0.83** | 0.50 | 1.00 |
+
+- **Hybrid search is the clear winner:** the right note is ranked first for 81% of questions (up from 69%) and is always in the top 5. Better retrieval carried through to the answers: the answer score rose from 0.68 to 0.80.
+- **Multi-note questions are the weak spot** (answer score 0.50): the LLM gets the right notes but doesn't always combine facts from several of them. That's a target for the agent phase.
+- **Removing stopwords mattered for BM25.** Without it, long code-heavy notes matched casual questions on words like "what" and "how", and hybrid only tied with dense (Hit@1 0.69).
+- **None of the three rerankers improved on hybrid** and each added noticeable latency, so `hybrid` is the default. They're general web-search models, and the eval set is small (one question = 0.06), so treat small differences with caution.
+
 ## Project structure
 
 ```text
@@ -89,7 +126,7 @@ rag.py              terminal chat
 app/
   config.py         settings from .env
   index.py          load vault, chunk, embed, store in ChromaDB
-  retrieval.py      find relevant chunks
+  retrieval.py      dense, BM25, hybrid (RRF) and reranked search
   generate.py       build the prompt and ask the LLM
 eval/
   run_eval.py       evaluation runner
@@ -99,11 +136,11 @@ eval/
 
 ## Stack
 
-Python · Ollama · Llama 3.1 8B · EmbeddingGemma · ChromaDB
+Python · Ollama · Llama 3.1 8B · EmbeddingGemma · ChromaDB · BM25 (rank-bm25) · fastembed (reranker)
 
 ## Roadmap
 
 - [x] Evaluation set and baseline metrics
-- [ ] Hybrid search (BM25 + embeddings) with a cross-encoder reranker
+- [x] Hybrid search (BM25 + embeddings) with an optional cross-encoder reranker
 - [ ] Agent (LangGraph) that chooses between note search, web search and a calculator
 - [ ] Streamlit UI and per-query latency/token logging
