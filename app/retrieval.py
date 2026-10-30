@@ -27,9 +27,17 @@ class Hit:
     score: float  # higher = more relevant (scale depends on the method)
 
 
+# Very common words carry no meaning for keyword search, so BM25 ignores them
+STOPWORDS = set("""
+a an and are as at be but by can did do does for from had has have how i in is it its
+me my of on or so that the their them then there these this to was we what when where
+which who why will with you your
+""".split())
+
+
 def tokenize(text):
-    """Lowercase words, e.g. "Fixed __reduce_ex__ in v2" -> ["fixed", "__reduce_ex__", "in", "v2"]."""
-    return re.findall(r"\w+", text.lower())
+    """Lowercase words minus stopwords, e.g. "What broke __reduce_ex__?" -> ["broke", "__reduce_ex__"]."""
+    return [word for word in re.findall(r"\w+", text.lower()) if word not in STOPWORDS]
 
 
 class Retriever:
@@ -97,10 +105,11 @@ class Retriever:
         every chunk. So it only re-orders the candidates the other methods found.
         """
         if self.reranker is None:
-            from sentence_transformers import CrossEncoder
-            self.reranker = CrossEncoder(config.RERANK_MODEL)
+            # fastembed runs the model with ONNX Runtime (no PyTorch needed); downloads it on first use
+            from fastembed.rerank.cross_encoder import TextCrossEncoder
+            self.reranker = TextCrossEncoder(model_name=config.RERANK_MODEL)
 
-        scores = self.reranker.predict([(question, hit.text) for hit in hits])
+        scores = self.reranker.rerank(question, [hit.text for hit in hits])
         for hit, score in zip(hits, scores):
             hit.score = float(score)
         return sorted(hits, key=lambda hit: hit.score, reverse=True)[:k]

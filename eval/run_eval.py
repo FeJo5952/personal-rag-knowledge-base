@@ -88,10 +88,16 @@ def main():
         groups["all"].append(row)
         groups[row["type"]].append(row)
 
+    if args.retrieval_only:
+        run_type = "retrieval only (no answers generated, so no LLM calls and no answer score)"
+    else:
+        run_type = "full (retrieval + answer generation by the LLM + grading by the judge)"
     lines = [
         f"# Eval: mode={args.mode}, k={args.k}",
         "",
         f"- Date: {datetime.now():%Y-%m-%d %H:%M}",
+        f"- Run type: {run_type}",
+        f"- Retrieval mode: {args.mode}" + (f" | Reranker: {config.RERANK_MODEL}" if args.mode == "hybrid_rerank" else ""),
         f"- LLM: {config.LLM_MODEL} | Judge: {config.JUDGE_MODEL} | Embeddings: {config.EMBED_MODEL}",
         f"- Questions: {len(rows)} | Runtime: {time.time() - started:.0f}s",
         "",

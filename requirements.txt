@@ -2,4 +2,4 @@ ollama
 chromadb
 python-dotenv
 rank-bm25
-sentence-transformers
+fastembed
