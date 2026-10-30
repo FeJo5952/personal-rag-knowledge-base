@@ -22,7 +22,7 @@ from pathlib import Path
 from app import config
 from app.generate import generate
 from app.index import load_index
-from app.retrieval import retrieve
+from app.retrieval import Retriever
 from eval.judge import grade
 
 EVAL_DIR = Path(__file__).parent
@@ -55,20 +55,20 @@ def fmt(value):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", default="dense", help="retrieval mode to evaluate")
+    parser.add_argument("--mode", default=config.RETRIEVAL_MODE, help="dense | bm25 | hybrid | hybrid_rerank")
     parser.add_argument("--k", type=int, default=config.TOP_K)
     parser.add_argument("--questions", default=EVAL_DIR / "questions.jsonl")
     parser.add_argument("--retrieval-only", action="store_true")
     args = parser.parse_args()
 
     questions = [json.loads(line) for line in open(args.questions, encoding="utf-8") if line.strip()]
-    collection = load_index()
+    retriever = Retriever(load_index())
     rows = []
     started = time.time()
 
     for i, q in enumerate(questions, start=1):
         not_in_notes = q["type"] == "not-in-notes"
-        hits = retrieve(collection, q["question"], k=args.k, mode=args.mode)
+        hits = retriever.search(q["question"], k=args.k, mode=args.mode)
         row = {"question": q["question"], "type": q["type"], "retrieved": [h.source for h in hits]}
 
         if not not_in_notes:

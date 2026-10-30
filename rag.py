@@ -8,16 +8,16 @@ To re-index after editing notes, delete the chroma_db folder and run again.
 
 from app.generate import generate
 from app.index import load_index
-from app.retrieval import retrieve
+from app.retrieval import Retriever
 
 
 def main():
-    collection = load_index()
+    retriever = Retriever(load_index())
     while True:
         question = input("\nAsk a question (or 'exit'): ").strip()
         if question.lower() in ("exit", "quit", ""):
             break
-        hits = retrieve(collection, question)      # 1. Retrieve
+        hits = retriever.search(question)          # 1. Retrieve
         print("\n" + generate(question, hits))     # 2. Augment + 3. Generate
         print("\nSources:")
         for source in dict.fromkeys(h.source for h in hits):  # unique, in order

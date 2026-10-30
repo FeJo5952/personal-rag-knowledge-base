@@ -14,3 +14,5 @@ CHROMA_DIR = os.getenv("CHROMA_DIR", "chroma_db")             # where the index 
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))             # characters per chunk
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "150"))        # characters shared by neighbouring chunks
 TOP_K = int(os.getenv("TOP_K", "5"))                          # chunks given to the LLM
+RETRIEVAL_MODE = os.getenv("RETRIEVAL_MODE", "hybrid_rerank")  # dense | bm25 | hybrid | hybrid_rerank
+RERANK_MODEL = os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")  # Hugging Face model
