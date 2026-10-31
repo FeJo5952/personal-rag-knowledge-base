@@ -52,7 +52,7 @@ Question → EmbeddingGemma → ChromaDB top-5 chunks → prompt → Llama 3.1 8
 
 ## 5. Code
 
-`rag.py` is the terminal chat. The logic lives in the `app/` package:
+`streamlit_app.py` is the chat UI and `rag.py` is the terminal chat. Both use the `app/` package:
 
 - `config.py`: settings from `.env` (vault path, models, chunking, retrieval mode)
 - `index.py`: `chunk_text()`, `embed_documents()` / `embed_query()`, `build_index()` and `load_index()` (ChromaDB)
@@ -125,7 +125,7 @@ The first run builds the index, then it asks for questions. To re-index after ed
 
 - **Phase 1 (done)**: package refactor, personal evaluation set, baseline metrics (Hit@1, Hit@5, MRR, All@5, LLM-judge answer score)
 - **Phase 2 (done)**: hybrid retrieval (BM25 + embeddings, Reciprocal Rank Fusion), optional cross-encoder reranker
-- **Phase 3**: Streamlit UI
+- **Phase 3 (done)**: Streamlit chat UI (local), with sources, retrieval settings and a re-index button
 - **Phase 4**: LangGraph agent (note search, web search, calculator) and per-query latency/token logging
 
 ## 10. Progress log
@@ -136,3 +136,4 @@ The first run builds the index, then it asks for questions. To re-index after ed
 | 2026-10-20 | Simplified to a single `rag.py` with an interactive terminal loop | Semantic retrieval only; hybrid search moved to the roadmap      |
 | 2026-10-27 | Phase 1: `app/` package, 20-question personal eval set, baseline | Dense baseline: Hit@1 0.69, answer score 0.68 |
 | 2026-10-30 | Phase 2: BM25, hybrid (RRF), rerankers via fastembed | Hybrid Hit@1 0.81; rerankers didn't help, so hybrid is the default |
+| 2026-10-30 | Phase 3: Streamlit chat UI | Runs locally on localhost; streamed answers, sources with Obsidian links, re-index button |

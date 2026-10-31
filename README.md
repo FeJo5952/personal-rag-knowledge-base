@@ -1,8 +1,8 @@
 # Personal Knowledge RAG
 
-A fully local RAG (Retrieval-Augmented Generation) system for an Obsidian vault. Ask a question in the terminal and it answers from your own notes, listing the notes it used.
+A fully local RAG (Retrieval-Augmented Generation) system for an Obsidian vault. Ask a question in a chat UI (or the terminal) and it answers from your own notes, listing the notes it used.
 
-Everything runs on your machine through Ollama: no cloud, no API keys.
+Everything runs on your machine through Ollama: no cloud, no API keys, and your notes are never uploaded.
 
 ## How it works
 
@@ -58,17 +58,25 @@ Other settings (chunk size, top-k) are optional and listed in `.env.example`.
 
 ## Run
 
+**Chat UI (recommended):**
+
+```bash
+streamlit run streamlit_app.py
+```
+
+This opens `http://localhost:8501` in your browser. The UI is served from your own machine, so it reads your local vault and Ollama; nothing is hosted online. In the app you can:
+- chat with your notes, with the answer streamed as it's written
+- expand **Sources** to see the exact chunks used, and click a note name to open it in Obsidian
+- pick the retrieval mode and number of chunks in the sidebar
+- click **Re-index vault** after adding or editing notes
+
+**Terminal:**
+
 ```bash
 python rag.py
 ```
 
-The first run builds the index. After that, type questions:
-
-```text
-Ask a question (or 'exit'): Why did I stop running?
-```
-
-If you edit your notes, delete the `chroma_db` folder and run again to re-index.
+The first run of either one builds the index, which takes a few minutes. After editing notes, use **Re-index vault** in the UI (or delete the `chroma_db` folder).
 
 ## Evaluation
 
@@ -122,6 +130,7 @@ End-to-end answer quality (Llama 3.1 8B answers, Qwen 2.5 7B judges):
 ## Project structure
 
 ```text
+streamlit_app.py    chat UI (runs locally)
 rag.py              terminal chat
 app/
   config.py         settings from .env
@@ -136,11 +145,12 @@ eval/
 
 ## Stack
 
-Python · Ollama · Llama 3.1 8B · EmbeddingGemma · ChromaDB · BM25 (rank-bm25) · fastembed (reranker)
+Python · Ollama · Llama 3.1 8B · EmbeddingGemma · ChromaDB · BM25 (rank-bm25) · fastembed (reranker) · Streamlit
 
 ## Roadmap
 
 - [x] Evaluation set and baseline metrics
 - [x] Hybrid search (BM25 + embeddings) with an optional cross-encoder reranker
 - [ ] Agent (LangGraph) that chooses between note search, web search and a calculator
-- [ ] Streamlit UI and per-query latency/token logging
+- [x] Streamlit chat UI
+- [ ] Per-query latency/token logging

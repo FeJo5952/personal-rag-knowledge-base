@@ -567,3 +567,40 @@ So `hybrid` is the default and reranking stays optional. **Trying something, mea
 | **Bi-encoder** | Embeds question and chunk separately, then compares the vectors (fast) |
 | **Cross-encoder / reranker** | Reads question and chunk together and scores relevance (slow, precise) |
 | **ONNX Runtime** | Lightweight engine for running already-trained models without PyTorch |
+
+---
+
+## 17. The Streamlit UI
+
+### Local web app, not a deployed one
+
+`streamlit run streamlit_app.py` starts a small web server **on your own computer** and opens `http://localhost:8501`. The browser is just the window: the Python code runs locally, reads your vault from disk, and calls your local Ollama. Nothing is uploaded, and nobody else can reach it. That's also why it isn't deployed online: a hosted server couldn't read anyone's local vault or run their Ollama.
+
+### How Streamlit runs your code
+
+Streamlit works differently from a normal script. **Every time you interact (type a question, move a slider), it re-runs the whole file from top to bottom.** Three tools make that work:
+
+| Tool | Problem it solves | In our app |
+|---|---|---|
+| `st.session_state` | Variables would reset on every re-run | Stores the chat history (`messages`), so earlier questions and answers stay on screen |
+| `@st.cache_resource` | Expensive setup would repeat on every question | Loads the `Retriever` (ChromaDB + BM25 index) once and reuses it |
+| `st.write_stream` | Waiting 20 s for a full answer feels broken | Shows the answer word by word as Llama writes it (`generate_stream` uses Ollama's `stream=True`) |
+
+### Flow of one question
+
+```text
+type question ─► add to session_state.messages ─► retriever.search() (cached)
+             ─► generate_stream() ─► st.write_stream shows tokens live
+             ─► show Sources expander ─► save answer + hits to session_state
+```
+
+The **Re-index vault** button calls `rebuild_index()` (deletes and rebuilds the ChromaDB collection), then clears the cached retriever so the next question uses the new index.
+
+### Glossary additions
+
+| Term | Meaning |
+|---|---|
+| **localhost** | "This computer". A server on localhost is only reachable from your own machine |
+| **Session state** | Data Streamlit keeps between re-runs for one browser tab |
+| **Caching** | Keeping the result of slow work (loading the index) so it isn't repeated |
+| **Streaming** | Sending the LLM's answer piece by piece as it's generated, instead of all at the end |

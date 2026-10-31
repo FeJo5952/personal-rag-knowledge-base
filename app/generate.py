@@ -21,3 +21,14 @@ def generate(question, hits):
         messages=[{"role": "user", "content": build_prompt(question, hits)}],
     )
     return response["message"]["content"]
+
+
+def generate_stream(question, hits):
+    """Same as generate(), but yields the answer piece by piece as the LLM writes it."""
+    stream = ollama.chat(
+        model=config.LLM_MODEL,
+        messages=[{"role": "user", "content": build_prompt(question, hits)}],
+        stream=True,
+    )
+    for part in stream:
+        yield part["message"]["content"]

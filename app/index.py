@@ -74,3 +74,10 @@ def load_index():
     if collection.count() == 0:
         build_index(collection)
     return collection
+
+
+def rebuild_index():
+    """Delete the stored index and build it again (use after editing notes)."""
+    client = chromadb.PersistentClient(path=config.CHROMA_DIR)
+    client.delete_collection("notes")
+    return load_index()

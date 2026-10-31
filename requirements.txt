@@ -3,3 +3,4 @@ chromadb
 python-dotenv
 rank-bm25
 fastembed
+streamlit
