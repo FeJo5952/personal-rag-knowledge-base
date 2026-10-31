@@ -51,10 +51,14 @@ def note_files():
             yield file
 
 
-def build_index(collection):
+def build_index(collection, on_progress=None):
+    """Chunk and embed every note. on_progress(done, total, note) lets a UI show a progress bar."""
     print("Indexing vault...")
-    for file in note_files():
+    files = list(note_files())
+    for done, file in enumerate(files, start=1):
         source = str(file.relative_to(config.VAULT_PATH))
+        if on_progress:
+            on_progress(done, len(files), source)
         chunks = chunk_text(file.read_text(encoding="utf-8"))
         if not chunks:
             continue
@@ -68,16 +72,16 @@ def build_index(collection):
     print(f"Done. {collection.count()} chunks stored.\n")
 
 
-def load_index():
+def load_index(on_progress=None):
     """Open the index, building it first if it's empty."""
     collection = get_collection()
     if collection.count() == 0:
-        build_index(collection)
+        build_index(collection, on_progress)
     return collection
 
 
-def rebuild_index():
+def rebuild_index(on_progress=None):
     """Delete the stored index and build it again (use after editing notes)."""
     client = chromadb.PersistentClient(path=config.CHROMA_DIR)
     client.delete_collection("notes")
-    return load_index()
+    return load_index(on_progress)

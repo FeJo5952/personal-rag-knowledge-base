@@ -15,18 +15,18 @@ def build_prompt(question, hits):
     )
 
 
-def generate(question, hits):
+def generate(question, hits, model=config.LLM_MODEL):
     response = ollama.chat(
-        model=config.LLM_MODEL,
+        model=model,
         messages=[{"role": "user", "content": build_prompt(question, hits)}],
     )
     return response["message"]["content"]
 
 
-def generate_stream(question, hits):
+def generate_stream(question, hits, model=config.LLM_MODEL):
     """Same as generate(), but yields the answer piece by piece as the LLM writes it."""
     stream = ollama.chat(
-        model=config.LLM_MODEL,
+        model=model,
         messages=[{"role": "user", "content": build_prompt(question, hits)}],
         stream=True,
     )

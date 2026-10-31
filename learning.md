@@ -596,10 +596,32 @@ type question ─► add to session_state.messages ─► retriever.search() (ca
 
 The **Re-index vault** button calls `rebuild_index()` (deletes and rebuilds the ChromaDB collection), then clears the cached retriever so the next question uses the new index.
 
+### Showing progress
+
+Two kinds of feedback, depending on whether we know how long something will take:
+
+| Situation | Total known? | Component |
+|---|---|---|
+| Downloading a model | Yes (bytes) | `st.progress` bar, fed by `ollama.pull(stream=True)` updates (`completed` / `total`) |
+| Indexing the vault | Yes (number of notes) | `st.progress` bar, fed by the `on_progress(done, total, note)` callback in `build_index()` |
+| Answering a question | No | `st.status`, a box with a spinner whose label changes: "Searching..." then "Writing the answer..." then "Done in 9.5s" |
+
+A **callback** is a function you hand to another function so it can report back. `build_index()` doesn't know about Streamlit; it just calls `on_progress(...)` after each note if one was given. The terminal (`rag.py`) passes nothing, and the UI passes a function that moves the bar. This keeps the RAG code independent of the UI.
+
+### Why the LLM is selectable but the embedding model isn't
+
+- **LLM:** it only reads the retrieved text and writes an answer, so you can swap it for any question. `ollama.list()` tells us which models are installed; others show "(not downloaded)" with a Download button.
+- **Embedding model:** every stored chunk vector was made by it. A question embedded by a different model lands in a different "vector space" (often a different size too, e.g. 768 vs 1024 numbers), so the search would be meaningless or crash. Changing it means re-embedding the whole vault, so it stays in `.env`.
+
+### Where the time goes
+
+Each answer shows its timings (e.g. `search 0.4s · answer 9.1s`). Search is fast: one small embedding call plus BM25 math. Almost all the time is the LLM writing. The first question is slower because Ollama has to load the models into memory (`ollama ps` shows what's loaded); after that they stay loaded for a few minutes.
+
 ### Glossary additions
 
 | Term | Meaning |
 |---|---|
+| **Callback** | A function passed to another function so it can report progress or results back |
 | **localhost** | "This computer". A server on localhost is only reachable from your own machine |
 | **Session state** | Data Streamlit keeps between re-runs for one browser tab |
 | **Caching** | Keeping the result of slow work (loading the index) so it isn't repeated |

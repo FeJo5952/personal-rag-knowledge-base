@@ -137,3 +137,4 @@ The first run builds the index, then it asks for questions. To re-index after ed
 | 2026-10-27 | Phase 1: `app/` package, 20-question personal eval set, baseline | Dense baseline: Hit@1 0.69, answer score 0.68 |
 | 2026-10-30 | Phase 2: BM25, hybrid (RRF), rerankers via fastembed | Hybrid Hit@1 0.81; rerankers didn't help, so hybrid is the default |
 | 2026-10-30 | Phase 3: Streamlit chat UI | Runs locally on localhost; streamed answers, sources with Obsidian links, re-index button |
+| 2026-10-31 | UI polish | LLM picker with in-app model download (progress bar), live status and timings per answer, vault stats, indexing progress bar, welcome panel with example questions; embedding model kept in `.env` on purpose |
