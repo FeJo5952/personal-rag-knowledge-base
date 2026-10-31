@@ -16,7 +16,7 @@ from app.retrieval import Retriever
 MODES = ["hybrid", "dense", "bm25", "hybrid_rerank"]
 VAULT_NAME = Path(config.VAULT_PATH).name
 
-st.set_page_config(page_title="Personal Knowledge RAG", page_icon="📚")
+st.set_page_config(page_title="Personal Knowledge RAG")
 
 
 @st.cache_resource(show_spinner="Loading your notes (the first run builds the index, which can take a few minutes)...")
@@ -58,7 +58,7 @@ with st.sidebar:
 
 
 # --- Chat ---
-st.title("📚 Personal Knowledge RAG")
+st.title("Personal Knowledge RAG")
 st.caption("Ask questions about your Obsidian notes. Everything runs locally on your machine.")
 
 if "messages" not in st.session_state:
