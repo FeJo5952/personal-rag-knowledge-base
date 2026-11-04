@@ -4,3 +4,5 @@ python-dotenv
 rank-bm25
 fastembed
 streamlit
+psycopg[binary]
+PyYAML

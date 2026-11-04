@@ -51,12 +51,29 @@ def note_files():
             yield file
 
 
+def note_source(file):
+    """A note's id in both stores (ChromaDB and PostgreSQL): its path inside the vault, e.g. 'Personal/Projects/X.md'."""
+    return file.relative_to(config.VAULT_PATH).as_posix()
+
+
+def sync_catalog():
+    """Also refresh the PostgreSQL catalog of the vault, if DATABASE_LOADER_URL is set (optional)."""
+    if not config.DATABASE_LOADER_URL:
+        return
+    import psycopg                       # only needed when the SQL catalog is used
+    from app.sql_ingest import sync_vault
+    try:
+        sync_vault()
+    except psycopg.OperationalError as error:  # server not running: notes search still works
+        print(f"Skipped the SQL catalog (is PostgreSQL running?): {error}")
+
+
 def build_index(collection, on_progress=None):
     """Chunk and embed every note. on_progress(done, total, note) lets a UI show a progress bar."""
     print("Indexing vault...")
     files = list(note_files())
     for done, file in enumerate(files, start=1):
-        source = str(file.relative_to(config.VAULT_PATH))
+        source = note_source(file)
         if on_progress:
             on_progress(done, len(files), source)
         chunks = chunk_text(file.read_text(encoding="utf-8"))
@@ -70,6 +87,7 @@ def build_index(collection, on_progress=None):
         )
         print(f"  {source}: {len(chunks)} chunks")
     print(f"Done. {collection.count()} chunks stored.\n")
+    sync_catalog()
 
 
 def load_index(on_progress=None):
