@@ -12,6 +12,37 @@ Everything runs on your machine through Ollama: no cloud, no API keys, and your 
 4. **Retrieve**: find the 5 most relevant chunks with **hybrid search**: semantic search (embeddings) and keyword search (BM25) run side by side, and their rankings are merged with Reciprocal Rank Fusion.
 5. **Answer**: send those chunks with the question to **Llama 3.1 8B**, which answers using only those notes and lists its sources.
 
+### Notes, database or both
+
+With the optional [SQL catalog](#sql-catalog-postgresql-optional), each question first goes through a **router**:
+
+```text
+question ─► router (LLM, JSON output) ─┬─ notes ─► hybrid search ─────────────────────────────┐
+                                       ├─ sql ───► Text-to-SQL ─► safe execution in PostgreSQL ─┼─► Llama 3.1 8B ─► answer + sources
+                                       └─ both ──► SQL result + hybrid search ──────────────────┘
+```
+
+| Route | For questions like | Where the answer comes from |
+|---|---|---|
+| `notes` | "Explain PCA from my MLF notes" | Note chunks (the pipeline above) |
+| `sql` | "Which course has the most open tasks?" | A query the LLM writes over the catalog views |
+| `both` | "Summarize my notes for the course with the most open tasks" | The query's rows plus note chunks |
+
+- **Text-to-SQL:**
+  - The LLM gets the schema (with the real course codes and note kinds read from the database) and seven example question/query pairs: JOIN-free aggregation, `ILIKE` filters, a CTE with `RANK() OVER (PARTITION BY ...)`, `date_trunc`, and one "the database can't answer this".
+  - It replies in a fixed JSON shape.
+  - If its query fails, Postgres's error message and hint go back to it for one retry.
+- **Safe execution:** every query is checked in Python and then run as the read-only `rag_reader` user (see the SQL catalog section).
+  - The Python check allows only a single `SELECT` or `WITH` statement.
+  - Each query gets a fresh connection, a read-only transaction and a row cap.
+- **Attribution:** the answer prompt labels database rows `[Database]` and note excerpts `(from note.md)`, and the LLM is told to copy numbers from the rows instead of recounting.
+- **Fallbacks:**
+  - If no working query is found, the answer comes from the notes, with a visible notice.
+  - If the database is off or not set up, every question goes to the notes, exactly as before.
+  - If the LLM router fails, keyword rules decide.
+
+In the terminal, `python rag.py` prints the route, the SQL and the result table above each answer (`--route notes|sql|both` forces one).
+
 ### Retrieval modes
 
 Set `RETRIEVAL_MODE` in `.env`:
@@ -182,6 +213,10 @@ app/
   retrieval.py      dense, BM25, hybrid (RRF) and reranked search
   generate.py       build the prompt and ask the LLM
   sql_ingest.py     load courses, notes, tasks and frontmatter into PostgreSQL
+  sql_safety.py     check the LLM's SQL and run it as the read-only user
+  text_to_sql.py    schema + examples -> the LLM writes a query (one retry on error)
+  router.py         decide notes / sql / both for each question
+  pipeline.py       route -> SQL and/or search -> prompt -> answer
 sql/
   roles.sql         database users (owner + read-only reader) and the database
   schema.sql        tables, constraints, views and grants
