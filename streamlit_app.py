@@ -11,9 +11,11 @@ import ollama
 import streamlit as st
 
 from app import config
-from app.generate import generate_stream
+from app.generate import chat_stream
 from app.index import get_collection, load_index, rebuild_index
+from app.pipeline import prepare
 from app.retrieval import CANDIDATES, RRF_K, Retriever
+from app.sql_safety import db_available
 
 # Internal mode names (used in .env and the eval) -> names shown in the UI
 MODES = {
@@ -34,10 +36,19 @@ SUGGESTED_LLMS = ["llama3.1:8b", "qwen2.5:7b", "gemma3:4b", "mistral:7b", "llama
 NOT_DOWNLOADED = "↓"
 DEFAULT_CHUNKS = 4  # UI default; the eval keeps using TOP_K from .env
 
+# Where answers come from (the router's choices) -> names shown in the UI
+ROUTES = {"auto": "Auto", "notes": "Notes", "sql": "Database", "both": "Both"}
+ROUTE_HELP = (
+    "**Auto**: an LLM decides for each question.  \n"
+    "**Notes**: search the text of your notes.  \n"
+    "**Database**: the LLM writes a SQL query over the catalog of your vault (counts, lists, tasks, deadlines).  \n"
+    "**Both**: a SQL result plus note search."
+)
+
 STEPS = [
-    ("1. Search", "Finds the most relevant parts of your notes."),
-    ("2. Answer", "A local LLM answers using only those parts."),
-    ("3. Cite", "Lists the notes used, linked to Obsidian."),
+    ("1. Route", "Decides where to look: your notes, the database of your vault, or both."),
+    ("2. Retrieve", "Searches your notes and/or runs a read-only SQL query."),
+    ("3. Answer & cite", "A local LLM answers from them and lists every source."),
 ]
 AVATARS = {"user": ":material/person:", "assistant": ":material/smart_toy:"}
 VAULT_NAME = Path(config.VAULT_PATH).name
@@ -106,7 +117,7 @@ def obsidian_link(source):
 
 
 def show_sources(hits):
-    with st.expander(f"Sources: {len(unique_notes(hits))} notes, {len(hits)} chunks"):
+    with st.expander(f"Notes: {len(unique_notes(hits))} notes, {len(hits)} chunks"):
         for i, hit in enumerate(hits, start=1):
             with st.container(border=True):
                 st.markdown(f"**{i}. [{Path(hit.source).stem}]({obsidian_link(hit.source)})**")
@@ -114,33 +125,71 @@ def show_sources(hits):
                 st.caption(hit.text[:400] + ("..." if len(hit.text) > 400 else ""))
 
 
-def answer(question, llm, mode, top_k):
-    """Search, then stream the answer, with live progress in a status box. Returns the chat message."""
-    status = st.status(f"Searching your notes ({MODES[mode]})...")
+def show_database(sql):
+    """The SQL the LLM wrote and the rows it returned (or why it failed)."""
+    label = f"Database: {len(sql.rows)} rows" if not sql.error else "Database: query failed"
+    with st.expander(label, expanded=not sql.error):
+        if sql.sql:
+            st.code(sql.sql, language="sql")
+        if sql.error:
+            st.caption(f"Error: {sql.error}")
+        elif sql.rows:
+            st.dataframe([dict(zip(sql.columns, row)) for row in sql.rows], hide_index=True)
+        attempts = f"{sql.attempts} attempt{'s' if sql.attempts > 1 else ''}"
+        st.caption(f"Run as the read-only user · {attempts}" + (" · more rows exist" if sql.truncated else ""))
+
+
+def show_answer_extras(message):
+    """Route, notices, timings and sources under an answer."""
+    st.caption(message["details"])
+    for notice in message["notices"]:
+        st.info(notice, icon=":material/info:")
+    if message["sql"] and message["sql"].sql:
+        show_database(message["sql"])
+    if message["hits"]:
+        show_sources(message["hits"])
+
+
+def answer(question, llm, mode, top_k, route_choice):
+    """Route, query and/or search, then stream the answer, with live progress in a status box."""
+    status = st.status("Choosing where to look...")
     answer_area = st.container()  # created now so the answer appears below the status box
 
     try:
         start = time.perf_counter()
-        hits = retriever.search(question, k=top_k, mode=mode)
-        search_time = time.perf_counter() - start
-        status.write(f"Found {len(hits)} chunks from {len(unique_notes(hits))} notes in {search_time:.1f}s")
+        result = prepare(question, retriever, route_choice=route_choice, k=top_k, mode=mode,
+                         on_step=lambda text: status.update(label=text))
+        prepare_time = time.perf_counter() - start
+        status.write(f"Route: **{ROUTES[result.route.route]}** ({result.route.reason})")
+        if result.sql and not result.sql.error:
+            status.write(f"Database query returned {len(result.sql.rows)} rows")
+        if result.hits:
+            status.write(f"Found {len(result.hits)} chunks from {len(unique_notes(result.hits))} notes")
 
         if llm not in loaded_models():
             status.write(f"Loading {llm} into memory (the first answer takes longer)")
         status.update(label=f"Writing the answer with {llm}...")
 
         start = time.perf_counter()
-        text = answer_area.write_stream(generate_stream(question, hits, llm))  # shows the answer as it's written
+        text = answer_area.write_stream(chat_stream(result.prompt, llm))  # shows the answer as it's written
         answer_time = time.perf_counter() - start
     except Exception:
         status.update(label="Something went wrong", state="error")
         raise
-    status.update(label=f"Done in {search_time + answer_time:.1f}s", state="complete")
+    status.update(label=f"Done in {prepare_time + answer_time:.1f}s", state="complete")
 
-    details = f"{MODES[mode]} · {top_k} chunks · search {search_time:.1f}s · answer {answer_time:.1f}s · {llm}"
-    st.caption(details)
-    show_sources(hits)
-    return {"role": "assistant", "content": text, "hits": hits, "details": details}
+    steps = " · ".join(f"{step} {seconds:.1f}s" for step, seconds in result.timings.items())
+    details = f"Route: {ROUTES[result.route.route]} · {steps} · answer {answer_time:.1f}s · {llm}"
+    message = {"role": "assistant", "content": text, "hits": result.hits, "sql": result.sql,
+               "notices": result.notices, "details": details}
+    show_answer_extras(message)
+    return message
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def database_status():
+    """Checked at most every 30 s, so the sidebar doesn't connect on every click."""
+    return db_available()
 
 
 def show_about(llm, mode, top_k):
@@ -151,11 +200,12 @@ def show_about(llm, mode, top_k):
 
     st.markdown(f"""
 **Pipeline for each question**
-1. Dense search (embeddings) and BM25 search (keywords) each return their top {CANDIDATES} chunks
-2. Reciprocal Rank Fusion merges the two lists
-3. The cross-encoder re-scores them (Hybrid + Rerank only)
-4. The top {top_k} chunks and the question go to the LLM
-5. The LLM answers, and the notes it used are listed as sources
+1. The router (an LLM call) decides: notes, database, or both
+2. Database: the LLM writes a SQL query, which runs as a read-only user
+3. Notes: dense search (embeddings) and BM25 search (keywords) each return their top {CANDIDATES} chunks,
+   Reciprocal Rank Fusion merges the two lists, and the cross-encoder re-scores them (Hybrid + Rerank only)
+4. The query result and/or the top {top_k} chunks go to the LLM with the question
+5. The LLM answers, and the database rows and notes it used are listed as sources
 """)
 
     rerank_note = "in use" if mode == "hybrid_rerank" else "only used by Hybrid + Rerank"
@@ -173,7 +223,10 @@ def show_about(llm, mode, top_k):
 | **Search method** | {MODES[mode]} (default: {MODES[config.RETRIEVAL_MODE]}) | Sidebar, or `RETRIEVAL_MODE` |
 | **Chunks given to the LLM** | {top_k} | Sidebar |
 | **LLM** | `{llm}` via Ollama (default: `{config.LLM_MODEL}`) | Sidebar, or `LLM_MODEL` |
-| **Answer rules** | Answer only from the retrieved notes; say so when nothing relevant is found | `app/generate.py` |
+| **Router** | `{config.LLM_MODEL}` picks notes / database / both (keyword rules if it fails) | Sidebar "Answer from", `app/router.py` |
+| **Database** | PostgreSQL catalog of the vault: courses, notes, tasks, frontmatter; {"connected" if database_status() else "not available"} | `DATABASE_URL`, `DATABASE_LOADER_URL` |
+| **Text-to-SQL** | `{config.SQL_MODEL}` writes one SELECT over 3 views; one retry on error; {config.SQL_TIMEOUT_MS / 1000:g} s timeout, {config.SQL_MAX_ROWS} rows max | `SQL_MODEL`, `SQL_TIMEOUT_MS`, `SQL_MAX_ROWS` |
+| **Answer rules** | Answer only from the retrieved notes and database rows; say so when nothing relevant is found | `app/generate.py` |
 | **Eval judge** | `{config.JUDGE_MODEL}`, only used by `python -m eval.run_eval` | `JUDGE_MODEL` |
 """)
 
@@ -235,6 +288,16 @@ with st.sidebar:
     )
     top_k = st.slider("Chunks given to the LLM", min_value=1, max_value=10, value=DEFAULT_CHUNKS)
 
+    database_up = database_status()
+    route_choice = st.segmented_control(
+        "Answer from", list(ROUTES), format_func=ROUTES.get, default="auto",
+        disabled=not database_up, help=ROUTE_HELP,
+    ) or "auto"
+    if database_up:
+        st.caption(":material/database: Database connected")
+    else:
+        st.caption(":material/database: Database not available: answering from notes only")
+
     reindex_col, clear_col = st.columns(2)
     reindex = reindex_col.button("Re-index", icon=":material/refresh:", help="Run this after adding or editing notes")
     if clear_col.button("Clear chat", icon=":material/delete:"):
@@ -285,8 +348,7 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"], avatar=AVATARS[message["role"]]):
         st.markdown(message["content"])
         if message["role"] == "assistant":
-            st.caption(message["details"])
-            show_sources(message["hits"])
+            show_answer_extras(message)
 
 question = st.chat_input("Ask about your notes...", disabled=not llm_ready)
 if question:
@@ -297,7 +359,7 @@ if question:
 
     with st.chat_message("assistant", avatar=AVATARS["assistant"]):
         try:
-            st.session_state.messages.append(answer(question, llm, mode, top_k))
+            st.session_state.messages.append(answer(question, llm, mode, top_k, route_choice))
         except ConnectionError:
             st.error("Can't reach Ollama. Make sure it's running (open the Ollama app or run `ollama serve`).")
         except ollama.ResponseError as error:

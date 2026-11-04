@@ -22,11 +22,11 @@ question ─► router (LLM, JSON output) ─┬─ notes ─► hybrid search �
                                        └─ both ──► SQL result + hybrid search ──────────────────┘
 ```
 
-| Route | For questions like | Where the answer comes from |
-|---|---|---|
-| `notes` | "Explain PCA from my MLF notes" | Note chunks (the pipeline above) |
-| `sql` | "Which course has the most open tasks?" | A query the LLM writes over the catalog views |
-| `both` | "Summarize my notes for the course with the most open tasks" | The query's rows plus note chunks |
+| Route   | For questions like                                           | Where the answer comes from                   |
+| ------- | ------------------------------------------------------------ | --------------------------------------------- |
+| `notes` | "Explain PCA from my MLF notes"                              | Note chunks (the pipeline above)              |
+| `sql`   | "Which course has the most open tasks?"                      | A query the LLM writes over the catalog views |
+| `both`  | "Summarize my notes for the course with the most open tasks" | The query's rows plus note chunks. The note search also includes what the query found (e.g. the course name), since only the database knows which course that is |
 
 - **Text-to-SQL:**
   - The LLM gets the schema (with the real course codes and note kinds read from the database) and seven example question/query pairs: JOIN-free aggregation, `ILIKE` filters, a CTE with `RANK() OVER (PARTITION BY ...)`, `date_trunc`, and one "the database can't answer this".
@@ -99,7 +99,8 @@ This opens `http://localhost:8501` in your browser. The UI is served from your o
 
 - chat with your notes, with live progress (searching, loading the model, writing) and the answer streamed as it's written
 - see how long search and generation took under each answer
-- expand **Sources** to see the exact chunks used, and click a note name to open it in Obsidian
+- expand **Notes** to see the exact chunks used, and click a note name to open it in Obsidian
+- with the SQL catalog: choose **Answer from** (Auto, Notes, Database, Both) in the sidebar, see the route of each answer, and expand **Database** to see the SQL the LLM wrote and the rows it returned
 - choose the LLM in the sidebar; models marked ↓ aren't pulled yet and can be downloaded from the UI with a progress bar
 - pick the search method (Hybrid, Dense, BM25, Hybrid + Rerank) and number of chunks (default 4)
 - see vault stats and click **Re-index** (with a progress bar) after adding or editing notes
@@ -223,6 +224,7 @@ sql/
 eval/
   run_eval.py       evaluation runner
   judge.py          LLM-as-judge grading
+  run_sql_eval.py   routing accuracy and Text-to-SQL execution accuracy
   results/          score summaries
 ```
 
@@ -234,6 +236,7 @@ Python · Ollama · Llama 3.1 8B · EmbeddingGemma · ChromaDB · BM25 (rank-bm2
 
 - [x] Evaluation set and baseline metrics
 - [x] Hybrid search (BM25 + embeddings) with an optional cross-encoder reranker
-- [ ] Agent (LangGraph) that chooses between note search, web search and a calculator
 - [x] Streamlit chat UI
+- [x] PostgreSQL catalog of the vault, Text-to-SQL with safe execution, and a router (notes / database / both)
+- [ ] Agent loop with tools (note search, SQL) instead of a single routing step
 - [ ] Per-query latency/token logging

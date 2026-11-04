@@ -112,9 +112,16 @@ def error_text(error):
     return str(error)
 
 
-def text_to_sql(question, model=config.SQL_MODEL, max_attempts=2):
-    """Ask the LLM for a query and run it. If it fails, show the model the error and let it try once more."""
-    messages = build_messages(question)
+PART_HINT = ("\n\n(Write the query only for the part the database can answer, e.g. which course, university, "
+             "notes or tasks the question is about. The notes' text is searched separately, so this counts as answerable.)")
+
+
+def text_to_sql(question, model=config.SQL_MODEL, max_attempts=2, part_only=False):
+    """Ask the LLM for a query and run it. If it fails, show the model the error and let it try once more.
+
+    part_only: for "both" questions, only the database part is needed (the notes are searched separately).
+    """
+    messages = build_messages(question + (PART_HINT if part_only else ""))
     sql, error = None, None
     for attempt in range(1, max_attempts + 1):
         reply = ollama.chat(model=model, messages=messages, format=SQL_FORMAT, options={"temperature": 0})

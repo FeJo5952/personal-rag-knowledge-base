@@ -35,6 +35,18 @@ def choose_route(question, route_choice, database_up):
     return Route(route_choice, "chosen by you", "manual")
 
 
+def search_text(question, sql):
+    """For "both" questions, add what the database found to the note search.
+
+    "Summarize my notes for the course with the most open tasks" only finds the right notes
+    once the search also contains the course's name, which only the database knows.
+    """
+    if not sql or sql.error or not sql.rows:
+        return question
+    found = dict.fromkeys(str(value) for row in sql.rows[:5] for value in row if isinstance(value, str))
+    return f"{question} {' '.join(found)}"
+
+
 def prepare(question, retriever, route_choice="auto", k=config.TOP_K, mode=config.RETRIEVAL_MODE, on_step=None):
     """Route the question, query the database and/or search the notes, and build the prompt.
 
@@ -55,7 +67,7 @@ def prepare(question, retriever, route_choice="auto", k=config.TOP_K, mode=confi
     if answer.route.route in ("sql", "both"):
         step("Writing and running a database query...")
         start = time.perf_counter()
-        answer.sql = text_to_sql(question)
+        answer.sql = text_to_sql(question, part_only=answer.route.route == "both")
         answer.timings["sql"] = time.perf_counter() - start
         if answer.sql.error:  # no working query: fall back to the notes
             answer.notices.append(f"Database query failed ({answer.sql.error}), so this was answered from your notes.")
@@ -64,7 +76,7 @@ def prepare(question, retriever, route_choice="auto", k=config.TOP_K, mode=confi
     if answer.route.route in ("notes", "both"):
         step("Searching your notes...")
         start = time.perf_counter()
-        answer.hits = retriever.search(question, k=k, mode=mode)
+        answer.hits = retriever.search(search_text(question, answer.sql), k=k, mode=mode)
         answer.timings["search"] = time.perf_counter() - start
 
     if answer.route.route == "notes":

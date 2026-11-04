@@ -1,0 +1,4 @@
+{"question": "How many notes do I have for Machine Learning Techniques?", "route": "sql", "gold_sql": "SELECT COUNT(*) FROM v_notes WHERE course_code = 'MLT'"}
+{"question": "Which programmes accept JAM as the entrance exam?", "route": "sql", "gold_sql": "SELECT university, programme FROM v_universities WHERE entrance_exam ILIKE '%JAM%'"}
+{"question": "Rank my courses by number of notes", "route": "sql", "gold_sql": "SELECT course_name, COUNT(*) FROM v_notes WHERE course_code IS NOT NULL GROUP BY course_name ORDER BY 2 DESC", "ordered": true}
+{"question": "Summarize my notes for the course with the fewest notes", "route": "both", "gold_sql": "SELECT course_name FROM v_notes WHERE course_code IS NOT NULL GROUP BY course_name ORDER BY COUNT(*) LIMIT 1"}
