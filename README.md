@@ -16,12 +16,12 @@ Everything runs on your machine through Ollama: no cloud, no API keys, and your 
 
 Set `RETRIEVAL_MODE` in `.env`:
 
-| Mode | How it finds chunks | Good at |
-|---|---|---|
-| `dense` | Embedding similarity (ChromaDB) | Questions phrased differently from the note |
-| `bm25` | Keyword matching, ignoring common words | Exact names, codes, acronyms |
-| `hybrid` (default) | Both, merged with Reciprocal Rank Fusion | Both kinds of question |
-| `hybrid_rerank` | Hybrid, then a cross-encoder re-scores the top 20 | Optional; didn't help on my notes (see Results) |
+| Mode               | How it finds chunks                               | Good at                                         |
+| ------------------ | ------------------------------------------------- | ----------------------------------------------- |
+| `dense`            | Embedding similarity (ChromaDB)                   | Questions phrased differently from the note     |
+| `bm25`             | Keyword matching, ignoring common words           | Exact names, codes, acronyms                    |
+| `hybrid` (default) | Both, merged with Reciprocal Rank Fusion          | Both kinds of question                          |
+| `hybrid_rerank`    | Hybrid, then a cross-encoder re-scores the top 20 | Optional; didn't help on my notes (see Results) |
 
 ## Setup
 
@@ -46,11 +46,11 @@ VAULT_PATH=C:\path\to\your\vault
 
 You can use **any Ollama model** that runs on your machine. Set them in `.env`:
 
-| Setting | Job | Default |
-|---|---|---|
-| `EMBED_MODEL` | Turns notes and questions into vectors | `embeddinggemma` |
-| `LLM_MODEL` | Writes the answers | `llama3.1:8b` |
-| `JUDGE_MODEL` | Grades answers in the evaluation (best if different from `LLM_MODEL`) | `qwen2.5:7b` |
+| Setting       | Job                                                                   | Default          |
+| ------------- | --------------------------------------------------------------------- | ---------------- |
+| `EMBED_MODEL` | Turns notes and questions into vectors                                | `embeddinggemma` |
+| `LLM_MODEL`   | Writes the answers                                                    | `llama3.1:8b`    |
+| `JUDGE_MODEL` | Grades answers in the evaluation (best if different from `LLM_MODEL`) | `qwen2.5:7b`     |
 
 Pull whatever you choose with `ollama pull <model>`. With a small GPU (4 GB), a 3B model such as `llama3.2:3b` or `qwen2.5:3b` is much faster than an 8B one. If you change `EMBED_MODEL`, delete the `chroma_db` folder so the notes are re-embedded with the new model.
 
@@ -88,12 +88,12 @@ The first run of either one builds the index, which takes a few minutes. After e
 
 Search finds the 5 most relevant chunks, so it can't **count or list everything**. "How many open tasks do I have per course?" needs every checkbox in the vault, not 5 chunks. So the vault's structure is also loaded into PostgreSQL. The schema is modelled on my own vault: IIT Madras course folders, university application notes with frontmatter, and task checkboxes.
 
-| Table | One row per | Key columns |
-|---|---|---|
-| `courses` | course folder | `code` (UNIQUE), `name`, `folder` |
-| `notes` | Markdown note | `path` (UNIQUE, same as the ChromaDB source), `kind`, `course_id` → courses, `week`, `modified_at`, `word_count` |
-| `tasks` | checkbox | `note_id` → notes (ON DELETE CASCADE), `text`, `is_done` |
-| `note_properties` | frontmatter key | (`note_id`, `key`) primary key, `value`, `value_date` |
+| Table             | One row per     | Key columns                                                                                                      |
+| ----------------- | --------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `courses`         | course folder   | `code` (UNIQUE), `name`, `folder`                                                                                |
+| `notes`           | Markdown note   | `path` (UNIQUE, same as the ChromaDB source), `kind`, `course_id` → courses, `week`, `modified_at`, `word_count` |
+| `tasks`           | checkbox        | `note_id` → notes (ON DELETE CASCADE), `text`, `is_done`                                                         |
+| `note_properties` | frontmatter key | (`note_id`, `key`) primary key, `value`, `value_date`                                                            |
 
 - **Constraints:** primary and foreign keys, `UNIQUE`, `CHECK` (e.g. `kind IN (...)`, `week BETWEEN 0 AND 20`, forward-slash paths).
 - **Views:** three views (`v_notes`, `v_tasks`, `v_universities`) join and pivot the tables. `v_universities` turns frontmatter rows into columns with `max(...) FILTER (WHERE key = ...)`.
@@ -135,13 +135,13 @@ python -m eval.run_eval                    # also generates answers and grades t
 
 All metrics range from 0 to 1, and higher is better.
 
-| Metric | Meaning | How to read a score |
-|---|---|---|
-| **Hit@1** (main) | Share of questions where the top retrieved chunk comes from a correct source note | **0.70** = the very first result is from the right note for 7 out of 10 questions. Below 0.5 is weak; 0.8+ is strong. |
-| **Hit@5** | Share of questions where a correct source note is in the top 5 retrieved chunks | **0.40** = for 6 out of 10 questions the right note isn't among the 5 chunks the LLM sees, so it can't answer them. Aim for 0.9+. |
-| **MRR** | Mean reciprocal rank of the first correct source (1st = 1.0, 2nd = 0.5, 3rd = 0.33, ..., not found = 0) | **0.80** = the right note is usually ranked 1st, occasionally 2nd. **0.50** ≈ on average it's 2nd. MRR close to Hit@1 means "when found, it's at the top". |
-| **All@5** | Share of questions where every needed note is in the top 5 (matters for multi-note questions) | **0.75** = for 1 in 4 questions at least one needed note is missing, so the answer will be incomplete. |
-| **Answer score** | LLM-as-judge grade against the expected answer (correct 1, partial 0.5, wrong 0) | **0.68** ≈ about two-thirds of the answers are fully right, or many are partly right. A rough signal, since a small LLM judge is noisy; trust the retrieval metrics more. |
+| Metric           | Meaning                                                                                                 | How to read a score                                                                                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Hit@1** (main) | Share of questions where the top retrieved chunk comes from a correct source note                       | **0.70** = the very first result is from the right note for 7 out of 10 questions. Below 0.5 is weak; 0.8+ is strong.                                                     |
+| **Hit@5**        | Share of questions where a correct source note is in the top 5 retrieved chunks                         | **0.40** = for 6 out of 10 questions the right note isn't among the 5 chunks the LLM sees, so it can't answer them. Aim for 0.9+.                                         |
+| **MRR**          | Mean reciprocal rank of the first correct source (1st = 1.0, 2nd = 0.5, 3rd = 0.33, ..., not found = 0) | **0.80** = the right note is usually ranked 1st, occasionally 2nd. **0.50** ≈ on average it's 2nd. MRR close to Hit@1 means "when found, it's at the top".                |
+| **All@5**        | Share of questions where every needed note is in the top 5 (matters for multi-note questions)           | **0.75** = for 1 in 4 questions at least one needed note is missing, so the answer will be incomplete.                                                                    |
+| **Answer score** | LLM-as-judge grade against the expected answer (correct 1, partial 0.5, wrong 0)                        | **0.68** ≈ about two-thirds of the answers are fully right, or many are partly right. A rough signal, since a small LLM judge is noisy; trust the retrieval metrics more. |
 
 The score summary goes to `eval/results/` and is safe to commit. Per-question details go to `eval/runs/`, which is gitignored.
 
@@ -149,21 +149,21 @@ The score summary goes to `eval/results/` and is safe to commit. Per-question de
 
 On my vault (119 notes, 1,129 chunks), with 20 personal questions: 16 answerable, 4 whose answer isn't in the notes.
 
-| Retrieval mode | Hit@1 | Hit@5 | MRR | All@5 |
-|---|---|---|---|---|
-| dense (baseline) | 0.69 | 0.94 | 0.79 | 0.88 |
-| bm25 | 0.50 | 0.69 | 0.56 | 0.50 |
-| **hybrid** | **0.81** | **1.00** | **0.91** | **0.94** |
-| hybrid + rerank (ms-marco-MiniLM-L-6) | 0.75 | 0.94 | 0.82 | 0.88 |
-| hybrid + rerank (jina-reranker-v1-turbo) | 0.75 | 1.00 | 0.84 | 0.88 |
-| hybrid + rerank (bge-reranker-base) | 0.69 | 0.94 | 0.77 | 0.81 |
+| Retrieval mode                           | Hit@1    | Hit@5    | MRR      | All@5    |
+| ---------------------------------------- | -------- | -------- | -------- | -------- |
+| dense (baseline)                         | 0.69     | 0.94     | 0.79     | 0.88     |
+| bm25                                     | 0.50     | 0.69     | 0.56     | 0.50     |
+| **hybrid**                               | **0.81** | **1.00** | **0.91** | **0.94** |
+| hybrid + rerank (ms-marco-MiniLM-L-6)    | 0.75     | 0.94     | 0.82     | 0.88     |
+| hybrid + rerank (jina-reranker-v1-turbo) | 0.75     | 1.00     | 0.84     | 0.88     |
+| hybrid + rerank (bge-reranker-base)      | 0.69     | 0.94     | 0.77     | 0.81     |
 
 End-to-end answer quality (Llama 3.1 8B answers, Qwen 2.5 7B judges):
 
-| Retrieval mode | Answer score | Paraphrase | Exact-term | Multi-note | Not in notes (correctly refused) |
-|---|---|---|---|---|---|
-| dense (baseline) | 0.68 | 0.50 | 0.67 | 0.62 | 1.00 |
-| **hybrid** | **0.80** | **0.83** | **0.83** | 0.50 | 1.00 |
+| Retrieval mode   | Answer score | Paraphrase | Exact-term | Multi-note | Not in notes (correctly refused) |
+| ---------------- | ------------ | ---------- | ---------- | ---------- | -------------------------------- |
+| dense (baseline) | 0.68         | 0.50       | 0.67       | 0.62       | 1.00                             |
+| **hybrid**       | **0.80**     | **0.83**   | **0.83**   | 0.50       | 1.00                             |
 
 - **Hybrid search is the clear winner:** the right note is ranked first for 81% of questions (up from 69%) and is always in the top 5. Better retrieval carried through to the answers: the answer score rose from 0.68 to 0.80.
 - **Multi-note questions are the weak spot** (answer score 0.50): the LLM gets the right notes but doesn't always combine facts from several of them. That's a target for the agent phase.
