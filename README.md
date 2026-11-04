@@ -203,6 +203,32 @@ End-to-end answer quality (Llama 3.1 8B answers, Qwen 2.5 7B judges):
 - **The vault grew to 138 notes (1,737 chunks).** Hybrid retrieval re-run on it: Hit@1 0.81, Hit@5 1.00, MRR 0.89, All@5 0.94, so quality held as the vault grew.
 - **None of the three rerankers improved on hybrid** and each added noticeable latency, so `hybrid` is the default. They're general web-search models, and the eval set is small (one question = 0.06), so treat small differences with caution.
 
+### Router and Text-to-SQL results
+
+`python -m eval.run_sql_eval` scores the database side:
+- It uses 20 questions with a hand-written gold query: 15 database-only and 5 that need both sources.
+- It also includes the 20 notes questions above, which should all be routed to notes.
+- A generated query counts as correct when it returns the same rows as the gold query. Column names, extra columns and row order are ignored.
+
+Llama 3.1 8B does both the routing and the SQL:
+
+| Questions | n | Route accuracy | Valid SQL | Execution accuracy |
+|---|---|---|---|---|
+| all | 40 | 0.70 | 1.00 | 0.60 |
+| database | 15 | 0.73 | 1.00 | 0.60 |
+| both | 5 | 0.60 | 1.00 | 0.60 |
+| notes | 20 | 0.70 | - | - |
+
+- **Every generated query ran** (valid SQL 1.00), and only one needed the error-feedback retry. The read-only role refused nothing, because the model never tried to write.
+- **Wrong results came from meaning, not syntax.** Some queries added a filter nobody asked for (e.g. only course notes when counting all tasks). Others kept NULL rows the gold query drops. Some used `COUNT(*)` where the view already had a per-note `open_tasks` column.
+- **The router over-uses the database.** It sent 6 of 20 notes questions to `sql` or `both`. A wasted database query costs time, but the notes are still searched for `both`. For `sql`, Text-to-SQL usually answers "the database can't answer this", and the pipeline falls back to the notes.
+- **Next steps to measure:**
+  - a code model for the SQL (`SQL_MODEL=qwen2.5-coder:7b`);
+  - more few-shot examples for the confused cases;
+  - keyword rules before the LLM router.
+
+  With n = 15–20, one question is worth 0.05–0.07, so small differences are noise.
+
 ## Project structure
 
 ```text
