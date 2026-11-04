@@ -69,9 +69,10 @@ This opens `http://localhost:8501` in your browser. The UI is served from your o
 - chat with your notes, with live progress (searching, loading the model, writing) and the answer streamed as it's written
 - see how long search and generation took under each answer
 - expand **Sources** to see the exact chunks used, and click a note name to open it in Obsidian
-- choose the LLM in the sidebar; models you haven't pulled yet can be downloaded from the UI with a progress bar
-- pick the search method (Hybrid, Dense, BM25, Hybrid + Rerank) and number of chunks
-- see vault stats and click **Re-index vault** (with a progress bar) after adding or editing notes
+- choose the LLM in the sidebar; models marked ↓ aren't pulled yet and can be downloaded from the UI with a progress bar
+- pick the search method (Hybrid, Dense, BM25, Hybrid + Rerank) and number of chunks (default 4)
+- see vault stats and click **Re-index** (with a progress bar) after adding or editing notes
+- click **?** at the bottom of the sidebar for an About page showing the current setup (models, chunking, retrieval settings) and which `.env` setting changes each part
 
 The embedding model is set only in `.env`, not in the UI: the index is built with it, so changing it means re-embedding the whole vault.
 

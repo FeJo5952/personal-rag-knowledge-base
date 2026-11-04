@@ -3,7 +3,6 @@
 Run:  streamlit run streamlit_app.py
 """
 
-import random
 import time
 from pathlib import Path
 from urllib.parse import quote
@@ -14,7 +13,7 @@ import streamlit as st
 from app import config
 from app.generate import generate_stream
 from app.index import get_collection, load_index, rebuild_index
-from app.retrieval import Retriever
+from app.retrieval import CANDIDATES, RRF_K, Retriever
 
 # Internal mode names (used in .env and the eval) -> names shown in the UI
 MODES = {
@@ -32,7 +31,14 @@ MODE_HELP = (
 
 # Good general-purpose models on Ollama. Any other model you've pulled is added to the list too.
 SUGGESTED_LLMS = ["llama3.1:8b", "qwen2.5:7b", "gemma3:4b", "mistral:7b", "llama3.2:3b", "qwen2.5:3b"]
+NOT_DOWNLOADED = "↓"
+DEFAULT_CHUNKS = 4  # UI default; the eval keeps using TOP_K from .env
 
+STEPS = [
+    ("1. Search", "Finds the most relevant parts of your notes."),
+    ("2. Answer", "A local LLM answers using only those parts."),
+    ("3. Cite", "Lists the notes used, linked to Obsidian."),
+]
 AVATARS = {"user": ":material/person:", "assistant": ":material/smart_toy:"}
 VAULT_NAME = Path(config.VAULT_PATH).name
 
@@ -137,6 +143,49 @@ def answer(question, llm, mode, top_k):
     return {"role": "assistant", "content": text, "hits": hits, "details": details}
 
 
+def show_about(llm, mode, top_k):
+    """The current setup: every part of the pipeline, its settings, and where to change them."""
+    st.title("About this setup")
+    st.caption("A local RAG (retrieval-augmented generation) system over an Obsidian vault. "
+               "This page shows how it's configured right now and where to change each part.")
+
+    st.markdown(f"""
+**Pipeline for each question**
+1. Dense search (embeddings) and BM25 search (keywords) each return their top {CANDIDATES} chunks
+2. Reciprocal Rank Fusion merges the two lists
+3. The cross-encoder re-scores them (Hybrid + Rerank only)
+4. The top {top_k} chunks and the question go to the LLM
+5. The LLM answers, and the notes it used are listed as sources
+""")
+
+    rerank_note = "in use" if mode == "hybrid_rerank" else "only used by Hybrid + Rerank"
+    in_memory = ", ".join(loaded_models()) or "none right now"
+    st.markdown(f"""
+| Part | Current setup | Change it with |
+|---|---|---|
+| **Vault** | "{VAULT_NAME}": {len(set(retriever.sources))} Markdown notes (hidden folders skipped) | `VAULT_PATH` in `.env` |
+| **Chunking** | {config.CHUNK_SIZE}-character chunks with {config.CHUNK_OVERLAP} overlap, {len(retriever.ids):,} chunks in total | `CHUNK_SIZE`, `CHUNK_OVERLAP`, then Re-index |
+| **Embedding model** | `{config.EMBED_MODEL}` via Ollama | `EMBED_MODEL`, then Re-index |
+| **Vector store** | ChromaDB on disk in `{config.CHROMA_DIR}/`, cosine similarity | `CHROMA_DIR` |
+| **Keyword search** | BM25 (rank-bm25), common words ignored | |
+| **Merging** | Reciprocal Rank Fusion of the top {CANDIDATES} from each search (k = {RRF_K}) | |
+| **Reranker** | Cross-encoder `{config.RERANK_MODEL}` via fastembed on the CPU, {rerank_note} | `RERANK_MODEL` |
+| **Search method** | {MODES[mode]} (default: {MODES[config.RETRIEVAL_MODE]}) | Sidebar, or `RETRIEVAL_MODE` |
+| **Chunks given to the LLM** | {top_k} | Sidebar |
+| **LLM** | `{llm}` via Ollama (default: `{config.LLM_MODEL}`) | Sidebar, or `LLM_MODEL` |
+| **Answer rules** | Answer only from the retrieved notes; say so when nothing relevant is found | `app/generate.py` |
+| **Eval judge** | `{config.JUDGE_MODEL}`, only used by `python -m eval.run_eval` | `JUDGE_MODEL` |
+""")
+
+    st.markdown(f"**Models in memory right now:** {in_memory}")
+    st.caption("Everything runs on this machine. The internet is only used to download models "
+               "(Ollama models, and the reranker from Hugging Face the first time it's used).")
+
+
+def toggle_about():
+    st.session_state.show_about = not st.session_state.get("show_about", False)
+
+
 # --- Startup checks ---
 
 try:
@@ -147,7 +196,7 @@ except ConnectionError:
 
 if with_tag(config.EMBED_MODEL) not in installed:
     st.warning(f"The embedding model **{config.EMBED_MODEL}** isn't downloaded yet. It's needed to index and search your notes.")
-    if st.button(f"Download {config.EMBED_MODEL}", type="primary"):
+    if st.button(f"Download {config.EMBED_MODEL}", icon=":material/download:", type="primary"):
         download_model(config.EMBED_MODEL)
         st.rerun()
     st.stop()
@@ -164,78 +213,72 @@ retriever = get_retriever()
 with st.sidebar:
     st.header("Settings")
 
-    st.subheader("Model")
     chat_models = [m for m in installed if "embed" not in m]  # embedding models can't chat
     llm_options = list(dict.fromkeys([with_tag(config.LLM_MODEL), *SUGGESTED_LLMS, *chat_models]))
     llm = st.selectbox(
         "LLM", llm_options,
-        format_func=lambda m: m if m in installed else f"{m} (not downloaded)",
-        help="The model that writes the answers. Your default comes from LLM_MODEL in .env.",
+        format_func=lambda m: m if m in installed else f"{m}  {NOT_DOWNLOADED}",
+        help=f"The model that writes the answers. {NOT_DOWNLOADED} means not downloaded yet: select it to download it.",
     )
     llm_ready = llm in installed
     if not llm_ready:
-        st.warning(f"{llm} isn't downloaded yet.")
-        if st.button(f"Download {llm}", type="primary"):
+        if st.button(f"Download {llm}", icon=":material/download:", type="primary"):
             try:
                 download_model(llm)
                 st.rerun()
             except ollama.ResponseError as error:
                 st.error(f"Download failed: {error}")
 
-    st.divider()
-    st.subheader("Retrieval")
     mode = st.selectbox(
         "Search method", list(MODES), format_func=MODES.get,
         index=list(MODES).index(config.RETRIEVAL_MODE), help=MODE_HELP,
     )
-    top_k = st.slider("Chunks given to the LLM", min_value=1, max_value=10, value=config.TOP_K)
+    top_k = st.slider("Chunks given to the LLM", min_value=1, max_value=10, value=DEFAULT_CHUNKS)
 
-    st.divider()
-    st.subheader("Vault")
-    notes_col, chunks_col = st.columns(2)
-    notes_col.metric("Notes", len(set(retriever.sources)))
-    chunks_col.metric("Chunks", f"{len(retriever.ids):,}")
-    st.caption(f"Vault: {VAULT_NAME}  \nEmbedding model: {config.EMBED_MODEL}")
-    if st.button("Re-index vault", help="Run this after adding or editing notes"):
+    reindex_col, clear_col = st.columns(2)
+    reindex = reindex_col.button("Re-index", icon=":material/refresh:", help="Run this after adding or editing notes")
+    if clear_col.button("Clear chat", icon=":material/delete:"):
+        st.session_state.messages = []
+    if reindex:
         rebuild_index(on_progress=index_progress_bar())
         get_retriever.clear()
         st.rerun()
 
-    st.divider()
-    if st.button("Clear chat"):
-        st.session_state.messages = []
+    st.button(":material/help:", key="about_button", type="tertiary", help="About this setup", on_click=toggle_about)
+    # Streamlit has no option to pin a button to the bottom, so one small CSS rule does it
+    st.html("<style>.st-key-about_button { position: fixed; bottom: 1rem; }</style>")
+
+
+# --- About page (opened with the ? button) ---
+
+if st.session_state.get("show_about"):
+    st.button("Back to chat", icon=":material/arrow_back:", type="tertiary", on_click=toggle_about)
+    show_about(llm, mode, top_k)
+    st.stop()
 
 
 # --- Chat ---
 
 st.title("Personal Knowledge RAG")
-st.caption("Ask questions about your Obsidian notes. Search and answers run locally with Ollama.")
+st.caption(f"Ask questions about your Obsidian vault **{VAULT_NAME}**. Search and answers run locally with Ollama.")
+
+notes_col, chunks_col, mode_col = st.columns(3)
+notes_col.metric("Notes", len(set(retriever.sources)))
+chunks_col.metric("Chunks", f"{len(retriever.ids):,}")
+mode_col.metric("Search method", MODES[mode])
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "examples" not in st.session_state:
-    notes = sorted(set(retriever.sources))
-    st.session_state.examples = [f"What do my notes say about {Path(n).stem}?" for n in random.sample(notes, k=min(3, len(notes)))]
 
-# Welcome panel, shown until the first question
-example_question = None
+# "What you can do" panel, shown until the first question
 welcome = st.empty()
 if not st.session_state.messages:
     with welcome.container():
-        steps = [
-            ("1. Search", f"Finds the most relevant chunks out of {len(retriever.ids):,} in your vault."),
-            ("2. Answer", "A local LLM answers using only those chunks."),
-            ("3. Cite", "Shows the notes it used, with links that open them in Obsidian."),
-        ]
-        for column, (title, text) in zip(st.columns(3), steps):
+        st.markdown("**What you can do**")
+        for column, (title, text) in zip(st.columns(3), STEPS):
             with column.container(border=True):
                 st.markdown(f"**{title}**")
                 st.caption(text)
-
-        st.markdown("**Try asking**")
-        for example in st.session_state.examples:
-            if st.button(example, disabled=not llm_ready):
-                example_question = example
 
 # Streamlit re-runs this script on every interaction, so redraw the conversation so far
 for message in st.session_state.messages:
@@ -245,7 +288,7 @@ for message in st.session_state.messages:
             st.caption(message["details"])
             show_sources(message["hits"])
 
-question = st.chat_input("Ask about your notes...", disabled=not llm_ready) or example_question
+question = st.chat_input("Ask about your notes...", disabled=not llm_ready)
 if question:
     welcome.empty()
     st.session_state.messages.append({"role": "user", "content": question})
