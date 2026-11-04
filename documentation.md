@@ -138,3 +138,4 @@ The first run builds the index, then it asks for questions. To re-index after ed
 | 2026-10-30 | Phase 2: BM25, hybrid (RRF), rerankers via fastembed | Hybrid Hit@1 0.81; rerankers didn't help, so hybrid is the default |
 | 2026-10-30 | Phase 3: Streamlit chat UI | Runs locally on localhost; streamed answers, sources with Obsidian links, re-index button |
 | 2026-10-31 | UI polish | LLM picker with in-app model download (progress bar), live status and timings per answer, vault stats, indexing progress bar, "What you can do" panel, About page with the live setup; embedding model kept in `.env` on purpose |
+| 2026-11-04 | V2 phase 1: PostgreSQL catalog of the vault | 4 tables (courses, notes, tasks, note_properties) + 3 views, read-only `rag_reader` role (SELECT on views only, 5 s timeout); loaded from the vault on every re-index. Vault now 138 notes / 1,737 chunks; hybrid Hit@1 0.81 |

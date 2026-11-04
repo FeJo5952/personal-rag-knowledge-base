@@ -84,6 +84,43 @@ python rag.py
 
 The first run of either one builds the index, which takes a few minutes. After editing notes, use **Re-index vault** in the UI (or delete the `chroma_db` folder).
 
+## SQL catalog (PostgreSQL, optional)
+
+Search finds the 5 most relevant chunks, so it can't **count or list everything**. "How many open tasks do I have per course?" needs every checkbox in the vault, not 5 chunks. So the vault's structure is also loaded into PostgreSQL. The schema is modelled on my own vault: IIT Madras course folders, university application notes with frontmatter, and task checkboxes.
+
+| Table | One row per | Key columns |
+|---|---|---|
+| `courses` | course folder | `code` (UNIQUE), `name`, `folder` |
+| `notes` | Markdown note | `path` (UNIQUE, same as the ChromaDB source), `kind`, `course_id` → courses, `week`, `modified_at`, `word_count` |
+| `tasks` | checkbox | `note_id` → notes (ON DELETE CASCADE), `text`, `is_done` |
+| `note_properties` | frontmatter key | (`note_id`, `key`) primary key, `value`, `value_date` |
+
+- **Constraints:** primary and foreign keys, `UNIQUE`, `CHECK` (e.g. `kind IN (...)`, `week BETWEEN 0 AND 20`, forward-slash paths).
+- **Views:** three views (`v_notes`, `v_tasks`, `v_universities`) join and pivot the tables. `v_universities` turns frontmatter rows into columns with `max(...) FILTER (WHERE key = ...)`.
+- **Two database users:**
+  - `rag_owner` loads the data.
+  - `rag_reader` can only `SELECT` from the views, in read-only transactions with a 5 s timeout.
+
+  So a bad or malicious generated query can't change anything: `INSERT`, `DELETE`, `CREATE` and reading the base tables are refused by the database itself.
+
+**Setup:**
+
+1. Install PostgreSQL.
+2. Create the users and the database, with your own passwords:
+
+   ```bash
+   psql -U postgres -v owner_password=... -v reader_password=... -f sql/roles.sql
+   ```
+
+3. Put both URLs in `.env` (see `.env.example`).
+4. Load the catalog. The tables are created on the first run:
+
+   ```bash
+   python -m app.sql_ingest            # --dry-run to preview without a database, --init to re-create the tables
+   ```
+
+After that the catalog is refreshed automatically on every re-index. It's rebuilt in one transaction with an integrity check, so a failed load changes nothing. With the URLs left empty, the app works exactly as before, notes search only.
+
 ## Evaluation
 
 The `eval/` folder measures how well the system works on a set of questions with known answers.
@@ -131,6 +168,7 @@ End-to-end answer quality (Llama 3.1 8B answers, Qwen 2.5 7B judges):
 - **Hybrid search is the clear winner:** the right note is ranked first for 81% of questions (up from 69%) and is always in the top 5. Better retrieval carried through to the answers: the answer score rose from 0.68 to 0.80.
 - **Multi-note questions are the weak spot** (answer score 0.50): the LLM gets the right notes but doesn't always combine facts from several of them. That's a target for the agent phase.
 - **Removing stopwords mattered for BM25.** Without it, long code-heavy notes matched casual questions on words like "what" and "how", and hybrid only tied with dense (Hit@1 0.69).
+- **The vault grew to 138 notes (1,737 chunks).** Hybrid retrieval re-run on it: Hit@1 0.81, Hit@5 1.00, MRR 0.89, All@5 0.94, so quality held as the vault grew.
 - **None of the three rerankers improved on hybrid** and each added noticeable latency, so `hybrid` is the default. They're general web-search models, and the eval set is small (one question = 0.06), so treat small differences with caution.
 
 ## Project structure
@@ -143,6 +181,10 @@ app/
   index.py          load vault, chunk, embed, store in ChromaDB
   retrieval.py      dense, BM25, hybrid (RRF) and reranked search
   generate.py       build the prompt and ask the LLM
+  sql_ingest.py     load courses, notes, tasks and frontmatter into PostgreSQL
+sql/
+  roles.sql         database users (owner + read-only reader) and the database
+  schema.sql        tables, constraints, views and grants
 eval/
   run_eval.py       evaluation runner
   judge.py          LLM-as-judge grading
@@ -151,7 +193,7 @@ eval/
 
 ## Stack
 
-Python · Ollama · Llama 3.1 8B · EmbeddingGemma · ChromaDB · BM25 (rank-bm25) · fastembed (reranker) · Streamlit
+Python · Ollama · Llama 3.1 8B · EmbeddingGemma · ChromaDB · BM25 (rank-bm25) · fastembed (reranker) · PostgreSQL (psycopg) · Streamlit
 
 ## Roadmap
 
